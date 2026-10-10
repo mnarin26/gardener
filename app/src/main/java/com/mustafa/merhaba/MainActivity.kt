@@ -103,6 +103,13 @@ fun MerhabaScreen() {
                     style = MaterialTheme.typography.labelLarge.copy(fontSize = 16.sp)
                 )
             }
+            Spacer(modifier = Modifier.height(32.dp))
+            Text(
+                text = "v1",
+                style = MaterialTheme.typography.labelLarge.copy(fontSize = 14.sp),
+                color = Color(0xFF3D5A66),
+                textAlign = TextAlign.Center
+            )
         }
     }
 }
