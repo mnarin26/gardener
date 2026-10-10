@@ -4,13 +4,13 @@ plugins {
 }
 
 android {
-    namespace = "com.example.gardener"
+    namespace = "com.mustafa.merhaba"
     compileSdk {
         version = release(37)
     }
 
     defaultConfig {
-        applicationId = "com.example.gardener"
+        applicationId = "com.mustafa.merhaba"
         minSdk = 26
         targetSdk = 37
         versionCode = 1
