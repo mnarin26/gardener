@@ -71,7 +71,7 @@ fun MerhabaScreen() {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "Merhaba",
+                text = "Hola",
                 style = MaterialTheme.typography.displayLarge.copy(
                     fontSize = 56.sp,
                     fontWeight = FontWeight.Bold,
@@ -82,7 +82,7 @@ fun MerhabaScreen() {
             )
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = "Mustafa Narin için sade bir selam.",
+                text = "Un saludo sencillo para Mustafa Narin.",
                 style = MaterialTheme.typography.bodyLarge.copy(fontSize = 18.sp),
                 color = Color(0xFF3D5A66),
                 textAlign = TextAlign.Center
