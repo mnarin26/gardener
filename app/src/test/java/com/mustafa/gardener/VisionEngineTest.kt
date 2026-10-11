@@ -7,6 +7,7 @@ import com.mustafa.gardener.modules.vision.FailedVisionEngine
 import com.mustafa.gardener.modules.vision.FrameOrientation
 import com.mustafa.gardener.modules.vision.SimVisionEngine
 import com.mustafa.gardener.modules.vision.SimVisionManager
+import com.mustafa.gardener.modules.vision.TfliteYoloDetectVisionEngine
 import com.mustafa.gardener.modules.vision.UnloadedVisionEngine
 import com.mustafa.gardener.modules.vision.VisionBackend
 import com.mustafa.gardener.modules.vision.VisionConfig
@@ -19,6 +20,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.abs
 
 class VisionEngineTest {
 
@@ -116,5 +118,94 @@ class VisionEngineTest {
         // (0,0)=1 -> (1,0); (2,0)=3 -> (1,2); (0,1)=4 -> (0,0)
         assertEquals(4, out.pixels[0])
         assertEquals(1, out.pixels[1])
+    }
+
+    /**
+     * Repro for S24 empty-UI bug: yolov8n_float32.tflite emits normalized 0–1
+     * boxes; letterbox padY≈80 without scaling → all boxes dropped.
+     */
+    @Test
+    fun decodeAndNms_normalizedCoords_yieldsBoxesAfterLetterbox() {
+        val inputSize = 640
+        val numAnchors = 4
+        val numClasses = 80
+        val chairIdx = CocoLabels.ALL.indexOf("chair")
+        assertTrue(chairIdx >= 0)
+
+        // 640×480 letterboxed into 640×640 → scale=1, padX=0, padY=80
+        val meta = FrameOrientation.LetterboxMeta(
+            scale = 1f,
+            padX = 0f,
+            padY = 80f,
+            srcW = 640,
+            srcH = 480,
+        )
+
+        val raw = FloatArray((4 + numClasses) * numAnchors)
+        val a = 0
+        // Normalized cx,cy,w,h ( Ultralytics TFLite style )
+        raw[0 * numAnchors + a] = 0.5f
+        raw[1 * numAnchors + a] = 0.5f
+        raw[2 * numAnchors + a] = 0.25f
+        raw[3 * numAnchors + a] = 0.4f
+        raw[(4 + chairIdx) * numAnchors + a] = 0.80f
+
+        val boxes = TfliteYoloDetectVisionEngine.decodeAndNms(
+            raw = raw,
+            meta = meta,
+            inputSize = inputSize,
+            numAnchors = numAnchors,
+            numClasses = numClasses,
+        )
+
+        assertEquals(1, boxes.size)
+        val box = boxes[0]
+        assertEquals(chairIdx, box.classIndex)
+        assertTrue(box.label.contains("chair"))
+        assertEquals(0.80f, box.score, 1e-4f)
+        // Expected after ×640 then unpad: left=0.375, top≈0.233, right=0.625, bottom≈0.767
+        assertEquals(0.375f, box.left, 1e-3f)
+        assertEquals(112f / 480f, box.top, 1e-3f)
+        assertEquals(0.625f, box.right, 1e-3f)
+        assertEquals(368f / 480f, box.bottom, 1e-3f)
+        assertTrue(box.right > box.left)
+        assertTrue(box.bottom > box.top)
+    }
+
+    @Test
+    fun decodeAndNms_pixelCoords_stillWorks() {
+        val inputSize = 640
+        val numAnchors = 2
+        val numClasses = 80
+        val personIdx = CocoLabels.ALL.indexOf("person")
+
+        val meta = FrameOrientation.LetterboxMeta(
+            scale = 1f,
+            padX = 0f,
+            padY = 80f,
+            srcW = 640,
+            srcH = 480,
+        )
+
+        val raw = FloatArray((4 + numClasses) * numAnchors)
+        // Pixel-space box in 640 input (max ≫ 1.5 → no normalize scale)
+        raw[0] = 320f
+        raw[1 * numAnchors] = 320f
+        raw[2 * numAnchors] = 160f
+        raw[3 * numAnchors] = 256f
+        raw[(4 + personIdx) * numAnchors] = 0.9f
+
+        val boxes = TfliteYoloDetectVisionEngine.decodeAndNms(
+            raw = raw,
+            meta = meta,
+            inputSize = inputSize,
+            numAnchors = numAnchors,
+            numClasses = numClasses,
+        )
+
+        assertEquals(1, boxes.size)
+        assertEquals(personIdx, boxes[0].classIndex)
+        assertEquals(0.375f, boxes[0].left, 1e-3f)
+        assertTrue(abs(boxes[0].right - boxes[0].left) > 0.1f)
     }
 }

@@ -11,6 +11,7 @@ import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
@@ -21,6 +22,7 @@ import kotlin.math.min
  * on device — only that the delegate was requested.
  *
  * Input: float32 NHWC 640×640 (letterboxed). Output: [1,84,8400] (cx,cy,w,h + 80 cls).
+ * Box coords may be normalized 0–1 or pixels in input space; [decodeAndNms] auto-detects.
  */
 class TfliteYoloDetectVisionEngine private constructor(
     private val interpreter: Interpreter,
@@ -107,7 +109,8 @@ class TfliteYoloDetectVisionEngine private constructor(
         outputBuffer.rewind()
         outputBuffer.asFloatBuffer().get(outputFloat)
 
-        val boxes = decodeAndNms(outputFloat, meta)
+        val boxes = decodeAndNms(outputFloat, meta, inputSize, numAnchors, numClasses)
+        Log.i(TAG, "detections=${boxes.size} after NMS")
         latest.set(
             DetectionOverlay(
                 boxes = boxes,
@@ -117,84 +120,6 @@ class TfliteYoloDetectVisionEngine private constructor(
                 inferenceMs = inferenceMs,
             )
         )
-    }
-
-    private fun decodeAndNms(
-        raw: FloatArray,
-        meta: FrameOrientation.LetterboxMeta,
-    ): List<DetectionBox> {
-        // Layout [1, 84, N] flattened as channel-major: raw[c * N + a]
-        val n = numAnchors
-        val candidates = ArrayList<Candidate>(64)
-
-        for (a in 0 until n) {
-            var bestCls = 0
-            var bestScore = 0f
-            for (c in 0 until numClasses) {
-                val s = raw[(4 + c) * n + a]
-                if (s > bestScore) {
-                    bestScore = s
-                    bestCls = c
-                }
-            }
-            if (bestScore < CONF_THRESHOLD) continue
-
-            val cx = raw[0 * n + a]
-            val cy = raw[1 * n + a]
-            val w = raw[2 * n + a]
-            val h = raw[3 * n + a]
-
-            // Undo letterbox → upright image pixels
-            val x1 = ((cx - w / 2f) - meta.padX) / meta.scale
-            val y1 = ((cy - h / 2f) - meta.padY) / meta.scale
-            val x2 = ((cx + w / 2f) - meta.padX) / meta.scale
-            val y2 = ((cy + h / 2f) - meta.padY) / meta.scale
-
-            val left = (x1 / meta.srcW).coerceIn(0f, 1f)
-            val top = (y1 / meta.srcH).coerceIn(0f, 1f)
-            val right = (x2 / meta.srcW).coerceIn(0f, 1f)
-            val bottom = (y2 / meta.srcH).coerceIn(0f, 1f)
-            if (right <= left || bottom <= top) continue
-
-            candidates.add(
-                Candidate(
-                    left = left,
-                    top = top,
-                    right = right,
-                    bottom = bottom,
-                    classIndex = bestCls,
-                    score = bestScore,
-                )
-            )
-        }
-
-        candidates.sortByDescending { it.score }
-        val kept = ArrayList<DetectionBox>(MAX_DETECTIONS)
-        val suppressed = BooleanArray(candidates.size)
-        for (i in candidates.indices) {
-            if (suppressed[i]) continue
-            val a = candidates[i]
-            val label = CocoLabels.ALL.getOrElse(a.classIndex) { "cls${a.classIndex}" }
-            kept.add(
-                DetectionBox(
-                    left = a.left,
-                    top = a.top,
-                    right = a.right,
-                    bottom = a.bottom,
-                    label = CocoLabels.displayLabel(label),
-                    classIndex = a.classIndex,
-                    score = a.score,
-                )
-            )
-            if (kept.size >= MAX_DETECTIONS) break
-            for (j in i + 1 until candidates.size) {
-                if (suppressed[j]) continue
-                val b = candidates[j]
-                if (a.classIndex != b.classIndex) continue
-                if (iou(a, b) >= IOU_THRESHOLD) suppressed[j] = true
-            }
-        }
-        return kept
     }
 
     fun close() {
@@ -210,15 +135,6 @@ class TfliteYoloDetectVisionEngine private constructor(
         latest.set(null)
     }
 
-    private data class Candidate(
-        val left: Float,
-        val top: Float,
-        val right: Float,
-        val bottom: Float,
-        val classIndex: Int,
-        val score: Float,
-    )
-
     companion object {
         private const val TAG = "GardenerVision"
         private const val DEFAULT_INPUT = 640
@@ -227,6 +143,132 @@ class TfliteYoloDetectVisionEngine private constructor(
         private const val CONF_THRESHOLD = 0.25f
         private const val IOU_THRESHOLD = 0.45f
         private const val MAX_DETECTIONS = 25
+        /** If all box coords among candidates are ≤ this, treat as normalized 0–1. */
+        private const val NORMALIZED_COORD_MAX = 1.5f
+
+        /**
+         * Decode YOLOv8 [1,84,N] channel-major output + NMS.
+         *
+         * Ultralytics float32 TFLite often emits **normalized** cx/cy/w/h in ~0–1;
+         * some exports emit pixels in inputSize space. Auto-detect: if max(|cx|,|cy|,|w|,|h|)
+         * among conf-passers ≤ [NORMALIZED_COORD_MAX], scale by [inputSize] before
+         * letterbox unpad.
+         */
+        internal fun decodeAndNms(
+            raw: FloatArray,
+            meta: FrameOrientation.LetterboxMeta,
+            inputSize: Int,
+            numAnchors: Int = DEFAULT_ANCHORS,
+            numClasses: Int = DEFAULT_CLASSES,
+        ): List<DetectionBox> {
+            // Layout [1, 84, N] flattened as channel-major: raw[c * N + a]
+            val n = numAnchors
+            val scored = ArrayList<ScoredAnchor>(64)
+            var maxBoxCoord = 0f
+
+            for (a in 0 until n) {
+                var bestCls = 0
+                var bestScore = 0f
+                for (c in 0 until numClasses) {
+                    val s = raw[(4 + c) * n + a]
+                    if (s > bestScore) {
+                        bestScore = s
+                        bestCls = c
+                    }
+                }
+                if (bestScore < CONF_THRESHOLD) continue
+
+                val cx = raw[0 * n + a]
+                val cy = raw[1 * n + a]
+                val w = raw[2 * n + a]
+                val h = raw[3 * n + a]
+                maxBoxCoord = max(
+                    maxBoxCoord,
+                    max(max(abs(cx), abs(cy)), max(abs(w), abs(h))),
+                )
+                scored.add(ScoredAnchor(cx, cy, w, h, bestCls, bestScore))
+            }
+
+            val toPixels = maxBoxCoord <= NORMALIZED_COORD_MAX
+            val coordScale = if (toPixels) inputSize.toFloat() else 1f
+            val candidates = ArrayList<Candidate>(scored.size)
+
+            for (s in scored) {
+                val cx = s.cx * coordScale
+                val cy = s.cy * coordScale
+                val w = s.w * coordScale
+                val h = s.h * coordScale
+
+                // Undo letterbox → upright image pixels
+                val x1 = ((cx - w / 2f) - meta.padX) / meta.scale
+                val y1 = ((cy - h / 2f) - meta.padY) / meta.scale
+                val x2 = ((cx + w / 2f) - meta.padX) / meta.scale
+                val y2 = ((cy + h / 2f) - meta.padY) / meta.scale
+
+                val left = (x1 / meta.srcW).coerceIn(0f, 1f)
+                val top = (y1 / meta.srcH).coerceIn(0f, 1f)
+                val right = (x2 / meta.srcW).coerceIn(0f, 1f)
+                val bottom = (y2 / meta.srcH).coerceIn(0f, 1f)
+                if (right <= left || bottom <= top) continue
+
+                candidates.add(
+                    Candidate(
+                        left = left,
+                        top = top,
+                        right = right,
+                        bottom = bottom,
+                        classIndex = s.classIndex,
+                        score = s.score,
+                    )
+                )
+            }
+
+            candidates.sortByDescending { it.score }
+            val kept = ArrayList<DetectionBox>(MAX_DETECTIONS)
+            val suppressed = BooleanArray(candidates.size)
+            for (i in candidates.indices) {
+                if (suppressed[i]) continue
+                val a = candidates[i]
+                val label = CocoLabels.ALL.getOrElse(a.classIndex) { "cls${a.classIndex}" }
+                kept.add(
+                    DetectionBox(
+                        left = a.left,
+                        top = a.top,
+                        right = a.right,
+                        bottom = a.bottom,
+                        label = CocoLabels.displayLabel(label),
+                        classIndex = a.classIndex,
+                        score = a.score,
+                    )
+                )
+                if (kept.size >= MAX_DETECTIONS) break
+                for (j in i + 1 until candidates.size) {
+                    if (suppressed[j]) continue
+                    val b = candidates[j]
+                    if (a.classIndex != b.classIndex) continue
+                    if (iou(a, b) >= IOU_THRESHOLD) suppressed[j] = true
+                }
+            }
+            return kept
+        }
+
+        private data class ScoredAnchor(
+            val cx: Float,
+            val cy: Float,
+            val w: Float,
+            val h: Float,
+            val classIndex: Int,
+            val score: Float,
+        )
+
+        private data class Candidate(
+            val left: Float,
+            val top: Float,
+            val right: Float,
+            val bottom: Float,
+            val classIndex: Int,
+            val score: Float,
+        )
 
         fun load(context: Context): TfliteYoloDetectVisionEngine {
             val app = context.applicationContext
