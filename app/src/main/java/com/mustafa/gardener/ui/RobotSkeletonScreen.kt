@@ -1,5 +1,6 @@
 package com.mustafa.gardener.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -10,9 +11,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -22,12 +25,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.mustafa.gardener.R
 import com.mustafa.gardener.core.DriverMode
 import com.mustafa.gardener.core.ModuleStatus
 import com.mustafa.gardener.modules.mission.MissionState
@@ -60,16 +68,31 @@ fun RobotSkeletonScreen(runtime: RobotRuntime) {
             .systemBarsPadding()
             .padding(horizontal = 20.dp, vertical = 16.dp)
     ) {
-        Text(
-            text = "Gardener",
-            style = MaterialTheme.typography.displayLarge,
-            color = Color(0xFF1B2A20)
-        )
-        Text(
-            text = "Robot app skeleton — architecture only",
-            style = MaterialTheme.typography.bodyLarge,
-            color = Color(0xFF3A5560)
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Image(
+                painter = painterResource(R.drawable.gardener_logo),
+                contentDescription = "Gardener logo",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(12.dp)),
+            )
+            Column {
+                Text(
+                    text = "Gardener",
+                    style = MaterialTheme.typography.displayLarge,
+                    color = Color(0xFF1B2A20)
+                )
+                Text(
+                    text = "Robot app skeleton — architecture only",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Color(0xFF3A5560)
+                )
+            }
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
 
