@@ -5,9 +5,10 @@ Otonom çim biçme robotu — **robot uygulaması iskeleti** (Kotlin + Jetpack C
 - **Paket / applicationId:** `com.mustafa.gardener` *(stated assumption)*
 - **Min SDK:** 26
 - **Target / compile SDK:** 37
-- **Mod:** SIMULATION — gerçek kamera / LiDAR / ESP32 / YOLO yok
+- **Mod:** Runtime modules SIMULATION; camera preview screen can open REAL CameraX (~640×480 target). LiDAR / ESP32 / YOLO yok.
+- **Cihaz kamera:** henüz doğrulanmadı — telefon testi gerekir.
 
-Merhaba demo kaldırıldı; bu iskelet mimari ve simülasyon sürücüleri içindir, çalışan biçme iddiası yoktur.
+Merhaba demo kaldırıldı; bu iskelet mimari + CameraX önizleme içindir, çalışan biçme iddiası yoktur.
 
 ## Derleme
 

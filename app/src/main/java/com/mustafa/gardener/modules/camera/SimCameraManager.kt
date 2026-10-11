@@ -5,5 +5,7 @@ import com.mustafa.gardener.core.BaseSimDriver
 class SimCameraManager : BaseSimDriver("CameraManager"), CameraManager {
     override fun hasLiveFrames(): Boolean = false
 
+    override fun previewResolutionText(): String = "SIM — no camera frames"
+
     override fun detail(): String = "SIM — no camera frames"
 }

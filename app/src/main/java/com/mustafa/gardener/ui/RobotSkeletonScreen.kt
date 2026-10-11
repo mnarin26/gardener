@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -43,7 +44,10 @@ import com.mustafa.gardener.runtime.RobotRuntime
 import com.mustafa.gardener.ui.theme.GardenerTheme
 
 @Composable
-fun RobotSkeletonScreen(runtime: RobotRuntime) {
+fun RobotSkeletonScreen(
+    runtime: RobotRuntime,
+    onOpenCameraPreview: () -> Unit = {},
+) {
     var tick by remember { mutableIntStateOf(0) }
     // Read after tick so Compose recomposes on SIM stub advances.
     @Suppress("UNUSED_EXPRESSION")
@@ -87,7 +91,7 @@ fun RobotSkeletonScreen(runtime: RobotRuntime) {
                     color = Color(0xFF1B2A20)
                 )
                 Text(
-                    text = "Robot app skeleton — architecture only",
+                    text = "Robot app skeleton — architecture + camera preview",
                     style = MaterialTheme.typography.bodyLarge,
                     color = Color(0xFF3A5560)
                 )
@@ -115,6 +119,17 @@ fun RobotSkeletonScreen(runtime: RobotRuntime) {
 
         Text(
             text = "Button cycles MissionState with fake events. Not a real mow.",
+            style = MaterialTheme.typography.labelLarge,
+            color = Color(0xFF6B5344),
+            modifier = Modifier.padding(top = 6.dp, bottom = 8.dp)
+        )
+
+        OutlinedButton(onClick = onOpenCameraPreview) {
+            Text("Open camera preview (SIM / REAL)")
+        }
+
+        Text(
+            text = "REAL uses CameraX ~640×480. Device preview unverified until phone test.",
             style = MaterialTheme.typography.labelLarge,
             color = Color(0xFF6B5344),
             modifier = Modifier.padding(top = 6.dp, bottom = 12.dp)
@@ -161,7 +176,7 @@ private fun StatusBlock(simActive: Boolean, missionState: MissionState) {
             color = Color(0xFFD0E0D4)
         )
         Text(
-            text = "No camera / LiDAR / ESP32 / YOLO attached.",
+            text = "Runtime modules are SIM. Camera preview screen can open REAL CameraX.",
             style = MaterialTheme.typography.labelLarge,
             color = Color(0xFFB8C8BC),
             modifier = Modifier.padding(top = 4.dp)
