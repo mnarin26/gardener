@@ -13,8 +13,8 @@ android {
         applicationId = "com.mustafa.gardener"
         minSdk = 26
         targetSdk = 37
-        versionCode = 3
-        versionName = "0.2.0-camera-preview"
+        versionCode = 4
+        versionName = "0.3.0-vision-skeleton"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

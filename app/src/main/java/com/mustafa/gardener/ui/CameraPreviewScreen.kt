@@ -40,6 +40,10 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.mustafa.gardener.modules.camera.RealCameraManager
 import com.mustafa.gardener.modules.camera.SimCameraManager
+import com.mustafa.gardener.modules.vision.DefaultVisionManager
+import com.mustafa.gardener.modules.vision.SimVisionManager
+import com.mustafa.gardener.modules.vision.UnloadedVisionEngine
+import com.mustafa.gardener.modules.vision.VisionLabels
 import kotlinx.coroutines.delay
 
 private enum class CameraSource {
@@ -62,9 +66,14 @@ fun CameraPreviewScreen(
         )
     }
     var resolutionText by remember { mutableStateOf("target 640×480") }
+    var visionStatusTr by remember { mutableStateOf("Model yok — sadece önizleme") }
 
     val realCamera = remember { RealCameraManager(context) }
     val simCamera = remember { SimCameraManager() }
+    val realVision = remember {
+        DefaultVisionManager(UnloadedVisionEngine.forContext(context))
+    }
+    val simVision = remember { SimVisionManager() }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -73,10 +82,15 @@ fun CameraPreviewScreen(
     }
 
     DisposableEffect(Unit) {
+        realCamera.attachVisionManager(realVision)
+        realVision.start()
         onDispose {
+            realCamera.attachVisionManager(null)
             realCamera.unbindPreview()
             realCamera.stop()
+            realVision.stop()
             simCamera.stop()
+            simVision.stop()
         }
     }
 
@@ -85,10 +99,18 @@ fun CameraPreviewScreen(
             CameraSource.SIM -> {
                 realCamera.unbindPreview()
                 simCamera.start()
+                simVision.start()
                 resolutionText = simCamera.previewResolutionText()
+                visionStatusTr = simVision.uiStatusTr()
             }
             CameraSource.REAL -> {
                 simCamera.stop()
+                simVision.stop()
+                realVision.start()
+                // Keep Unloaded/NotConfigured engine in sync with placeholder paths.
+                realVision.setEngine(UnloadedVisionEngine.forContext(context))
+                realCamera.attachVisionManager(realVision)
+                visionStatusTr = realVision.uiStatusTr()
                 if (!permissionGranted) {
                     realCamera.unbindPreview()
                     resolutionText = "REAL — CAMERA permission required"
@@ -96,10 +118,12 @@ fun CameraPreviewScreen(
                     // Poll until CameraX reports a bound size (async bind).
                     repeat(20) {
                         resolutionText = realCamera.previewResolutionText()
+                        visionStatusTr = realVision.uiStatusTr()
                         if (realCamera.hasLiveFrames()) return@LaunchedEffect
                         delay(250)
                     }
                     resolutionText = realCamera.previewResolutionText()
+                    visionStatusTr = realVision.uiStatusTr()
                 }
             }
         }
@@ -126,7 +150,7 @@ fun CameraPreviewScreen(
             color = Color(0xFF1B2A20)
         )
         Text(
-            text = "Camera preview",
+            text = "Kamera / vision",
             style = MaterialTheme.typography.bodyLarge,
             color = Color(0xFF3A5560)
         )
@@ -161,7 +185,21 @@ fun CameraPreviewScreen(
             modifier = Modifier.padding(top = 4.dp)
         )
         Text(
-            text = "Continuous preview — keep resolution low to reduce phone load / battery use.",
+            text = "Vision: $visionStatusTr",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color(0xFF1B2A20),
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+        Text(
+            text = "Faz 1 sınıflar: ${VisionLabels.phase1Summary()} (ızgara = Faz 2)",
+            style = MaterialTheme.typography.labelLarge,
+            color = Color(0xFF3A5560),
+            modifier = Modifier.padding(top = 2.dp)
+        )
+        Text(
+            text = "Continuous preview — keep resolution low to reduce phone load / battery use. " +
+                "ImageAnalysis kapalı (model yok).",
             style = MaterialTheme.typography.labelLarge,
             color = Color(0xFF6B5344),
             modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
@@ -221,7 +259,8 @@ fun CameraPreviewScreen(
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "UNVERIFIED on device: build wires CameraX; confirm preview on the phone.",
+            text = "UNVERIFIED on device: build wires CameraX; confirm preview on the phone. " +
+                "On-device inference: not running (no model).",
             style = MaterialTheme.typography.labelLarge,
             color = Color(0xFF8A4B2F)
         )
