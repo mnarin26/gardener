@@ -28,4 +28,7 @@ interface VisionManager : SensorDriver {
 
     /** Optional CameraX analysis hook; engines no-op until READY. */
     fun onAnalysisFrame(frame: VisionFrame)
+
+    /** Latest segmentation overlay from the active engine, if any. */
+    fun latestOverlay(): SegmentationOverlay? = engine().latestOverlay()
 }

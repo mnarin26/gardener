@@ -3,9 +3,8 @@ package com.mustafa.gardener.modules.vision
 /**
  * Pluggable detection/segmentation backend behind [VisionManager].
  *
- * Skeleton engines never claim on-device inference. A future TFLite / Ultralytics-Android /
- * LiteRT implementation should implement this interface and report [VisionEngineState.READY]
- * only after a successful model load.
+ * Report [VisionEngineState.READY] only after a successful model load.
+ * SIM / unloaded / failed engines must not invent detections.
  */
 interface VisionEngine {
     fun state(): VisionEngineState
@@ -32,4 +31,7 @@ interface VisionEngine {
     fun onFrame(frame: VisionFrame) {
         // no-op
     }
+
+    /** Latest segmentation overlay bitmap, if this engine produces one. */
+    fun latestOverlay(): SegmentationOverlay? = null
 }

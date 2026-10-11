@@ -4,39 +4,53 @@ import android.content.Context
 import java.io.File
 
 /**
- * Placeholder locations for a future on-device model file.
+ * On-device model locations for the ready-seg trial (and future fine-tuned export).
  *
- * No model is packaged or loaded yet. After `best.pt` → TFLite/ONNX/LiteRT export,
- * drop the file under assets and/or copy into [filesDirModelFile].
- *
- * TODO: pick TFLite / Ultralytics-Android / LiteRT runtime and wire load here.
+ * Bundled trial asset: Qualcomm FFNet-122NS-LowRes w8a8 TFLite (Cityscapes).
+ * Fine-tune export may later overwrite / replace via filesDir.
  */
 object VisionModelPaths {
     /** Packaged asset relative path (under `app/src/main/assets/`). */
-    const val ASSET_MODEL_RELATIVE: String = "models/outdoor_nav_seg.tflite"
+    const val ASSET_MODEL_RELATIVE: String = "models/ffnet_122ns_lowres_w8a8.tflite"
 
-    /** Suggested filename when copying into app filesDir. */
+    /** Cityscapes label list shipped next to the model. */
+    const val ASSET_LABELS_RELATIVE: String = "models/ffnet_122ns_lowres_labels.txt"
+
+    /** Suggested filename when copying a fine-tuned model into app filesDir. */
     const val FILES_DIR_MODEL_NAME: String = "outdoor_nav_seg.tflite"
+
+    /** Legacy / alternate asset name still recognized if present. */
+    const val ASSET_LEGACY_MODEL_RELATIVE: String = "models/outdoor_nav_seg.tflite"
 
     fun filesDirModelFile(context: Context): File =
         File(context.applicationContext.filesDir, "models/$FILES_DIR_MODEL_NAME")
 
     fun assetPresent(context: Context): Boolean =
-        try {
-            context.applicationContext.assets.open(ASSET_MODEL_RELATIVE).use { true }
-        } catch (_: Exception) {
-            false
-        }
+        assetExists(context, ASSET_MODEL_RELATIVE) ||
+            assetExists(context, ASSET_LEGACY_MODEL_RELATIVE)
 
     fun filesDirPresent(context: Context): Boolean = filesDirModelFile(context).isFile
 
     /**
-     * True if any configured placeholder location has a file.
-     * Presence alone does not mean inference is wired — runtime load is still TODO.
+     * True if any configured model location has a file.
      */
     fun anyModelFilePresent(context: Context): Boolean =
         assetPresent(context) || filesDirPresent(context)
 
     fun describeExpectedLocations(): String =
-        "assets/$ASSET_MODEL_RELATIVE or filesDir/models/$FILES_DIR_MODEL_NAME"
+        "assets/$ASSET_MODEL_RELATIVE (or $ASSET_LEGACY_MODEL_RELATIVE) " +
+            "or filesDir/models/$FILES_DIR_MODEL_NAME"
+
+    fun resolveAssetModelRelative(context: Context): String? = when {
+        assetExists(context, ASSET_MODEL_RELATIVE) -> ASSET_MODEL_RELATIVE
+        assetExists(context, ASSET_LEGACY_MODEL_RELATIVE) -> ASSET_LEGACY_MODEL_RELATIVE
+        else -> null
+    }
+
+    private fun assetExists(context: Context, relative: String): Boolean =
+        try {
+            context.applicationContext.assets.open(relative).use { true }
+        } catch (_: Exception) {
+            false
+        }
 }

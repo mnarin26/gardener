@@ -8,7 +8,7 @@ import java.util.concurrent.atomic.AtomicReference
 /**
  * Real-path [VisionManager] that delegates to a swappable [VisionEngine].
  *
- * Default engine is [UnloadedVisionEngine] — model not present, no inference.
+ * Prefer [VisionEngineFactory.forRealPath] for the default engine when a Context exists.
  */
 class DefaultVisionManager(
     initialEngine: VisionEngine = UnloadedVisionEngine(),

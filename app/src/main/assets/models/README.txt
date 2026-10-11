@@ -1,21 +1,23 @@
-Gardener — model asset placeholder
-====================================
+Gardener — on-device segmentation models
+========================================
 
-Put an exported on-device model here later, e.g.:
+Bundled ready-seg trial (Cityscapes):
 
-  outdoor_nav_seg.tflite
+  ffnet_122ns_lowres_w8a8.tflite   (~32 MB, Qualcomm AI Hub public asset)
+  ffnet_122ns_lowres_labels.txt
+  ffnet_122ns_lowres_metadata.json
 
-Expected asset path (see VisionModelPaths.ASSET_MODEL_RELATIVE):
+Asset path used by VisionModelPaths.ASSET_MODEL_RELATIVE:
 
-  assets/models/outdoor_nav_seg.tflite
+  assets/models/ffnet_122ns_lowres_w8a8.tflite
 
-Alternative runtime copy location:
+Optional fine-tune drop-in (filesDir):
 
   <app filesDir>/models/outdoor_nav_seg.tflite
 
-Phase 1 class labels: wall, sidewalk, road, fence
-Phase 2 (later): grate
+Legacy name still recognized if present:
 
-No model file is shipped in this scaffold. Until a TFLite / LiteRT /
-Ultralytics-Android runtime is wired, VisionManager reports unloaded /
-not configured and does NOT run inference.
+  assets/models/outdoor_nav_seg.tflite
+
+Highlight classes for overlay: road, sidewalk, wall, fence
+(Cityscapes train ids; see ready-seg-trial.md).

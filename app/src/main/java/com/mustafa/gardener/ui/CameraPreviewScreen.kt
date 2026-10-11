@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,8 +33,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -41,8 +45,11 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.mustafa.gardener.modules.camera.RealCameraManager
 import com.mustafa.gardener.modules.camera.SimCameraManager
 import com.mustafa.gardener.modules.vision.DefaultVisionManager
+import com.mustafa.gardener.modules.vision.SegmentationOverlay
 import com.mustafa.gardener.modules.vision.SimVisionManager
-import com.mustafa.gardener.modules.vision.UnloadedVisionEngine
+import com.mustafa.gardener.modules.vision.TfliteSegVisionEngine
+import com.mustafa.gardener.modules.vision.VisionEngineFactory
+import com.mustafa.gardener.modules.vision.VisionEngineState
 import com.mustafa.gardener.modules.vision.VisionLabels
 import kotlinx.coroutines.delay
 
@@ -67,11 +74,14 @@ fun CameraPreviewScreen(
     }
     var resolutionText by remember { mutableStateOf("target 640×480") }
     var visionStatusTr by remember { mutableStateOf("Model yok — sadece önizleme") }
+    var analysisNote by remember { mutableStateOf("ImageAnalysis kapalı") }
+    var overlay by remember { mutableStateOf<SegmentationOverlay?>(null) }
+    var classHitText by remember { mutableStateOf("") }
 
     val realCamera = remember { RealCameraManager(context) }
     val simCamera = remember { SimCameraManager() }
     val realVision = remember {
-        DefaultVisionManager(UnloadedVisionEngine.forContext(context))
+        DefaultVisionManager(VisionEngineFactory.forRealPath(context))
     }
     val simVision = remember { SimVisionManager() }
 
@@ -88,6 +98,7 @@ fun CameraPreviewScreen(
             realCamera.attachVisionManager(null)
             realCamera.unbindPreview()
             realCamera.stop()
+            (realVision.engine() as? TfliteSegVisionEngine)?.close()
             realVision.stop()
             simCamera.stop()
             simVision.stop()
@@ -102,20 +113,33 @@ fun CameraPreviewScreen(
                 simVision.start()
                 resolutionText = simCamera.previewResolutionText()
                 visionStatusTr = simVision.uiStatusTr()
+                analysisNote = "SIM — analiz yok"
+                overlay = null
+                classHitText = ""
             }
             CameraSource.REAL -> {
                 simCamera.stop()
                 simVision.stop()
                 realVision.start()
-                // Keep Unloaded/NotConfigured engine in sync with placeholder paths.
-                realVision.setEngine(UnloadedVisionEngine.forContext(context))
+                // Reload engine once when entering REAL (asset may exist).
+                val previous = realVision.engine()
+                if (previous !is TfliteSegVisionEngine ||
+                    previous.state() != VisionEngineState.READY
+                ) {
+                    (previous as? TfliteSegVisionEngine)?.close()
+                    realVision.setEngine(VisionEngineFactory.forRealPath(context))
+                }
                 realCamera.attachVisionManager(realVision)
                 visionStatusTr = realVision.uiStatusTr()
+                analysisNote = if (realVision.wantsFrameAnalysis()) {
+                    "ImageAnalysis açık (≤5 fps) — gerçek segmentasyon"
+                } else {
+                    "ImageAnalysis kapalı (model yok / yüklenemedi)"
+                }
                 if (!permissionGranted) {
                     realCamera.unbindPreview()
                     resolutionText = "REAL — CAMERA permission required"
                 } else {
-                    // Poll until CameraX reports a bound size (async bind).
                     repeat(20) {
                         resolutionText = realCamera.previewResolutionText()
                         visionStatusTr = realVision.uiStatusTr()
@@ -126,6 +150,22 @@ fun CameraPreviewScreen(
                     visionStatusTr = realVision.uiStatusTr()
                 }
             }
+        }
+    }
+
+    // Poll overlay while REAL + READY (engine updates from analysis thread).
+    LaunchedEffect(source, permissionGranted) {
+        if (source != CameraSource.REAL || !permissionGranted) return@LaunchedEffect
+        while (true) {
+            val latest = realVision.latestOverlay()
+            if (latest != null && latest !== overlay) {
+                overlay = latest
+                classHitText = latest.classPixelCounts.entries
+                    .sortedByDescending { it.value }
+                    .joinToString(" · ") { "${it.key}:${it.value}" }
+            }
+            visionStatusTr = realVision.uiStatusTr()
+            delay(200)
         }
     }
 
@@ -192,18 +232,27 @@ fun CameraPreviewScreen(
             modifier = Modifier.padding(top = 4.dp)
         )
         Text(
-            text = "Faz 1 sınıflar: ${VisionLabels.phase1Summary()} (ızgara = Faz 2)",
+            text = "Hedef sınıflar: ${VisionLabels.phase1Summary()} (Cityscapes FFNet)",
             style = MaterialTheme.typography.labelLarge,
             color = Color(0xFF3A5560),
             modifier = Modifier.padding(top = 2.dp)
         )
         Text(
-            text = "Continuous preview — keep resolution low to reduce phone load / battery use. " +
-                "ImageAnalysis kapalı (model yok).",
+            text = analysisNote,
             style = MaterialTheme.typography.labelLarge,
             color = Color(0xFF6B5344),
-            modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+            modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
         )
+        if (classHitText.isNotEmpty()) {
+            Text(
+                text = "Maske pikselleri: $classHitText",
+                style = MaterialTheme.typography.labelLarge,
+                color = Color(0xFF1B2A20),
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+        } else {
+            Spacer(modifier = Modifier.height(8.dp))
+        }
 
         Box(
             modifier = Modifier
@@ -251,6 +300,30 @@ fun CameraPreviewScreen(
                                 realCamera.bindPreview(lifecycleOwner, previewView)
                             }
                         )
+                        val currentOverlay = overlay
+                        val overlayImage = remember(currentOverlay?.timestampNs) {
+                            currentOverlay?.bitmap
+                                ?.takeIf { !it.isRecycled }
+                                ?.asImageBitmap()
+                        }
+                        if (currentOverlay != null && overlayImage != null) {
+                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                drawImage(
+                                    image = overlayImage,
+                                    srcOffset = IntOffset.Zero,
+                                    srcSize = IntSize(
+                                        currentOverlay.maskWidth,
+                                        currentOverlay.maskHeight,
+                                    ),
+                                    dstOffset = IntOffset.Zero,
+                                    dstSize = IntSize(
+                                        size.width.toInt(),
+                                        size.height.toInt(),
+                                    ),
+                                    alpha = 1f,
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -259,8 +332,8 @@ fun CameraPreviewScreen(
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "UNVERIFIED on device: build wires CameraX; confirm preview on the phone. " +
-                "On-device inference: not running (no model).",
+            text = "UNVERIFIED on device: seg quality + NPU. Build wires CameraX + TFLite; " +
+                "confirm overlay on S24 Ultra.",
             style = MaterialTheme.typography.labelLarge,
             color = Color(0xFF8A4B2F)
         )

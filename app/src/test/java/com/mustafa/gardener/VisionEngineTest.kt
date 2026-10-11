@@ -1,6 +1,8 @@
 package com.mustafa.gardener
 
+import com.mustafa.gardener.modules.vision.CityscapesLabels
 import com.mustafa.gardener.modules.vision.DefaultVisionManager
+import com.mustafa.gardener.modules.vision.FailedVisionEngine
 import com.mustafa.gardener.modules.vision.SimVisionEngine
 import com.mustafa.gardener.modules.vision.SimVisionManager
 import com.mustafa.gardener.modules.vision.UnloadedVisionEngine
@@ -10,6 +12,7 @@ import com.mustafa.gardener.modules.vision.VisionLabels
 import com.mustafa.gardener.runtime.RobotRuntime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -24,7 +27,7 @@ class VisionEngineTest {
         assertEquals("Model yok — sadece önizleme", engine.uiStatusTr())
         assertFalse(engine.wantsFrameAnalysis())
         assertEquals(VisionLabels.PHASE1, engine.classLabels())
-        // Must not throw / invent detections.
+        assertNull(engine.latestOverlay())
         engine.onFrame(VisionFrame(width = 640, height = 480, timestampNs = 1L))
     }
 
@@ -35,6 +38,15 @@ class VisionEngineTest {
         assertEquals("Model yok — sadece önizleme", engine.uiStatusTr())
         assertFalse(engine.wantsFrameAnalysis())
         assertTrue(engine.statusDetail().contains("not running inference"))
+    }
+
+    @Test
+    fun failedEngine_turkishFailedStatus() {
+        val engine = FailedVisionEngine("unit-test")
+        assertEquals(VisionEngineState.FAILED, engine.state())
+        assertEquals("Model yüklenemedi — sadece önizleme", engine.uiStatusTr())
+        assertFalse(engine.wantsFrameAnalysis())
+        assertNull(engine.latestOverlay())
     }
 
     @Test
@@ -62,6 +74,13 @@ class VisionEngineTest {
     fun phase1Labels_excludeGrate() {
         assertEquals(listOf("wall", "sidewalk", "road", "fence"), VisionLabels.PHASE1)
         assertFalse(VisionLabels.PHASE1.contains(VisionLabels.PHASE2_GRATE))
+    }
+
+    @Test
+    fun cityscapesLabels_includePhase1Targets() {
+        assertTrue(CityscapesLabels.ALL.containsAll(listOf("road", "sidewalk", "wall", "fence")))
+        assertEquals(19, CityscapesLabels.ALL.size)
+        assertEquals(4, CityscapesLabels.HIGHLIGHT_INDICES.size)
     }
 
     @Test

@@ -3,11 +3,10 @@ package com.mustafa.gardener.modules.vision
 import android.content.Context
 
 /**
- * Real-path placeholder engine used when no on-device model is loaded.
+ * Real-path placeholder engine used when no on-device model file is present.
  *
  * Reports clearly that inference is not running. Does not paint fake detections.
- *
- * TODO: replace with a TFLite / Ultralytics-Android / LiteRT engine after export of best.pt.
+ * When a model file exists, [VisionEngineFactory] prefers [TfliteSegVisionEngine] instead.
  */
 class UnloadedVisionEngine(
     private val engineState: VisionEngineState = VisionEngineState.UNLOADED,
@@ -53,14 +52,11 @@ class UnloadedVisionEngine(
             technicalReason = reason,
         )
 
-        /**
-         * Inspect placeholder paths. File presence alone does not enable inference —
-         * runtime load is still TODO, so we stay UNLOADED / NOT_CONFIGURED.
-         */
+        /** File missing → UNLOADED. (Presence is handled by [VisionEngineFactory].) */
         fun forContext(context: Context): UnloadedVisionEngine {
             return if (VisionModelPaths.anyModelFilePresent(context)) {
                 notConfigured(
-                    reason = "model file present but runtime not wired — not running inference",
+                    reason = "model file present but engine factory not used — not running inference",
                 )
             } else {
                 UnloadedVisionEngine(

@@ -2,8 +2,10 @@ package com.mustafa.gardener.modules.camera
 
 import android.content.Context
 import android.util.Size
+import android.graphics.ImageFormat
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
@@ -15,6 +17,7 @@ import com.mustafa.gardener.core.DriverMode
 import com.mustafa.gardener.core.ModuleStatus
 import com.mustafa.gardener.modules.vision.VisionFrame
 import com.mustafa.gardener.modules.vision.VisionManager
+import com.mustafa.gardener.modules.vision.YuvToRgb
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -32,8 +35,8 @@ import java.util.concurrent.atomic.AtomicReference
  * [VisionManager.wantsFrameAnalysis] == true (model loaded). Preview-only
  * must not keep an analysis pipeline alive (battery).
  *
- * Device camera success is NOT claimed until hardware testing.
- * On-device ML inference is NOT claimed — analysis hook only forwards metadata.
+ * When analysis is on, YUV frames are converted to ARGB and forwarded (≤5 fps).
+ * Device camera / NPU success is NOT claimed until hardware testing.
  */
 class RealCameraManager(
     context: Context,
@@ -160,7 +163,7 @@ class RealCameraManager(
                             .also { useCase ->
                                 useCase.setAnalyzer(analysisExecutor) { imageProxy ->
                                     try {
-                                        deliverThrottledFrame(imageProxy.width, imageProxy.height, imageProxy.imageInfo.timestamp, imageProxy.imageInfo.rotationDegrees)
+                                        deliverThrottledFrame(imageProxy)
                                     } finally {
                                         imageProxy.close()
                                     }
@@ -213,12 +216,9 @@ class RealCameraManager(
         )
     }
 
-    private fun deliverThrottledFrame(
-        width: Int,
-        height: Int,
-        timestampNs: Long,
-        rotationDegrees: Int,
-    ) {
+    private fun deliverThrottledFrame(imageProxy: ImageProxy) {
+        val timestampNs = imageProxy.imageInfo.timestamp
+        val rotationDegrees = imageProxy.imageInfo.rotationDegrees
         val minIntervalNs = 1_000_000_000L / ANALYSIS_MAX_FPS
         val previous = lastAnalysisNs.get()
         if (timestampNs > 0L && previous > 0L && timestampNs - previous < minIntervalNs) {
@@ -235,12 +235,24 @@ class RealCameraManager(
 
         val vision = visionManagerRef.get() ?: return
         if (!vision.wantsFrameAnalysis()) return
+
+        val argb = if (imageProxy.format == ImageFormat.YUV_420_888) {
+            try {
+                YuvToRgb.toArgb(imageProxy)
+            } catch (_: Exception) {
+                null
+            }
+        } else {
+            null
+        }
+
         vision.onAnalysisFrame(
             VisionFrame(
-                width = width,
-                height = height,
+                width = imageProxy.width,
+                height = imageProxy.height,
                 timestampNs = timestampNs,
                 rotationDegrees = rotationDegrees,
+                argbPixels = argb,
             )
         )
     }

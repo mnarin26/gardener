@@ -1,14 +1,16 @@
 package com.mustafa.gardener.modules.vision
 
 /**
- * Lightweight analysis-frame metadata passed from CameraX ImageAnalysis toward vision.
+ * Analysis frame from CameraX ImageAnalysis toward vision.
  *
- * Intentionally carries no pixel buffer yet — avoids allocation / copy while no model runs.
- * A future TFLite/LiteRT engine can extend this or accept ImageProxy directly.
+ * When [argbPixels] is non-null it holds row-major ARGB_8888 samples of size
+ * [width] * [height] (already rotation-normalized by the camera path when possible).
+ * Metadata-only frames (null pixels) are ignored by the TFLite engine.
  */
 data class VisionFrame(
     val width: Int,
     val height: Int,
     val timestampNs: Long,
     val rotationDegrees: Int = 0,
+    val argbPixels: IntArray? = null,
 )
