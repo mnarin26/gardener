@@ -98,10 +98,10 @@ def main() -> int:
         plots=False,
         verbose=True,
     )
-    best = root / "runs" / "segment" / "smoke_seg" / "weights" / "best.pt"
+    best = root / "runs" / "smoke_seg" / "weights" / "best.pt"
     if not best.is_file():
-        # Ultralytics may nest under runs/segment or runs/smoke depending on version
-        candidates = list((root / "runs").rglob("smoke_seg/**/best.pt"))
+        # Older Ultralytics nested under runs/segment/<name>
+        candidates = list((root / "runs").rglob("**/smoke_seg/weights/best.pt"))
         if candidates:
             best = candidates[0]
     print(f"Smoke OK. weights: {best} exists={best.is_file()}")

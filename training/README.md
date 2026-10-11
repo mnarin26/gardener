@@ -40,8 +40,10 @@ python scripts/download_roboflow.py
 # data.yaml path is printed by the download script — adjust if folder name differs
 python scripts/train_yolo_seg.py --data datasets/Cityscapes-10/data.yaml --epochs 50 --batch 8 --device 0
 
-python scripts/check_results.py --run runs/segment/outdoor_nav_seg
+python scripts/check_results.py --run runs/outdoor_nav_seg
 ```
+
+*(Ultralytics 8.4+ writes to `runs/<name>/`. Older versions used `runs/segment/<name>/` — pass the folder that actually contains `weights/best.pt`.)*
 
 Optional smoke (2 epochs, synthetic masks — verifies install only):
 

@@ -29,7 +29,7 @@ def main() -> int:
     parser.add_argument("--imgsz", type=int, default=640)
     parser.add_argument("--batch", type=int, default=8, help="Lower if CUDA OOM (e.g. 4)")
     parser.add_argument("--device", default="0", help="GPU id, or 'cpu'")
-    parser.add_argument("--name", default="outdoor_nav_seg", help="Run name under runs/segment/")
+    parser.add_argument("--name", default="outdoor_nav_seg", help="Run name under training/runs/")
     parser.add_argument(
         "--project",
         type=Path,
@@ -67,10 +67,10 @@ def main() -> int:
         patience=args.patience,
         exist_ok=True,
     )
-    save_dir = Path(results.save_dir) if hasattr(results, "save_dir") else args.project / "segment" / args.name
+    save_dir = Path(str(getattr(results, "save_dir", "") or (args.project / args.name)))
     best = save_dir / "weights" / "best.pt"
     print(f"Training finished. Best weights (if produced): {best}")
-    print("Check metrics with: python scripts/check_results.py --run", save_dir)
+    print(f"Check metrics with: python scripts/check_results.py --run {save_dir}")
     return 0
 
 
