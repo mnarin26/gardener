@@ -3,6 +3,7 @@ package com.mustafa.gardener
 import com.mustafa.gardener.modules.vision.CityscapesLabels
 import com.mustafa.gardener.modules.vision.CocoLabels
 import com.mustafa.gardener.modules.vision.DefaultVisionManager
+import com.mustafa.gardener.modules.vision.DetectTrialSettings
 import com.mustafa.gardener.modules.vision.FailedVisionEngine
 import com.mustafa.gardener.modules.vision.FrameOrientation
 import com.mustafa.gardener.modules.vision.SimVisionEngine
@@ -207,5 +208,61 @@ class VisionEngineTest {
         assertEquals(personIdx, boxes[0].classIndex)
         assertEquals(0.375f, boxes[0].left, 1e-3f)
         assertTrue(abs(boxes[0].right - boxes[0].left) > 0.1f)
+    }
+
+    @Test
+    fun decodeAndNms_respectsConfThreshold() {
+        val inputSize = 640
+        val numAnchors = 2
+        val numClasses = 80
+        val dogIdx = CocoLabels.ALL.indexOf("dog")
+
+        val meta = FrameOrientation.LetterboxMeta(
+            scale = 1f,
+            padX = 0f,
+            padY = 80f,
+            srcW = 640,
+            srcH = 480,
+        )
+
+        val raw = FloatArray((4 + numClasses) * numAnchors)
+        raw[0] = 0.5f
+        raw[1 * numAnchors] = 0.5f
+        raw[2 * numAnchors] = 0.2f
+        raw[3 * numAnchors] = 0.2f
+        raw[(4 + dogIdx) * numAnchors] = 0.30f
+
+        val atDefault = TfliteYoloDetectVisionEngine.decodeAndNms(
+            raw = raw,
+            meta = meta,
+            inputSize = inputSize,
+            numAnchors = numAnchors,
+            numClasses = numClasses,
+            confThreshold = 0.25f,
+        )
+        assertEquals(1, atDefault.size)
+
+        val raised = TfliteYoloDetectVisionEngine.decodeAndNms(
+            raw = raw,
+            meta = meta,
+            inputSize = inputSize,
+            numAnchors = numAnchors,
+            numClasses = numClasses,
+            confThreshold = 0.50f,
+        )
+        assertTrue(raised.isEmpty())
+    }
+
+    @Test
+    fun detectTrialSettings_outdoorIndices_includeChecklist() {
+        val indices = DetectTrialSettings.ClassFilter.Outdoor.allowedIndices()
+        assertTrue(indices != null)
+        requireNotNull(indices)
+        assertTrue(indices.isNotEmpty())
+        for (name in DetectTrialSettings.CHECKLIST) {
+            val idx = CocoLabels.ALL.indexOf(name)
+            assertTrue(indices.contains(idx))
+        }
+        assertNull(DetectTrialSettings.ClassFilter.All.allowedIndices())
     }
 }

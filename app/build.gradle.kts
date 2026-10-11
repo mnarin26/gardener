@@ -13,8 +13,8 @@ android {
         applicationId = "com.mustafa.gardener"
         minSdk = 26
         targetSdk = 37
-        versionCode = 7
-        versionName = "0.5.1-yolov8n-norm-fix"
+        versionCode = 8
+        versionName = "0.5.2-yolov8n-controls"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

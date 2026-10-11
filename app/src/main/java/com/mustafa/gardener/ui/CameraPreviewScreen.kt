@@ -10,6 +10,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -18,14 +19,22 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -50,15 +59,16 @@ import com.mustafa.gardener.modules.camera.RealCameraManager
 import com.mustafa.gardener.modules.camera.SimCameraManager
 import com.mustafa.gardener.modules.vision.CocoLabels
 import com.mustafa.gardener.modules.vision.DefaultVisionManager
+import com.mustafa.gardener.modules.vision.DetectTrialSettings
 import com.mustafa.gardener.modules.vision.DetectionOverlay
 import com.mustafa.gardener.modules.vision.SegmentationOverlay
 import com.mustafa.gardener.modules.vision.SimVisionManager
 import com.mustafa.gardener.modules.vision.TfliteSegVisionEngine
 import com.mustafa.gardener.modules.vision.TfliteYoloDetectVisionEngine
+import com.mustafa.gardener.modules.vision.VisionBackend
 import com.mustafa.gardener.modules.vision.VisionConfig
 import com.mustafa.gardener.modules.vision.VisionEngineFactory
 import com.mustafa.gardener.modules.vision.VisionEngineState
-import com.mustafa.gardener.modules.vision.VisionBackend
 import kotlinx.coroutines.delay
 import kotlin.math.max
 
@@ -67,6 +77,7 @@ private enum class CameraSource {
     REAL,
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CameraPreviewScreen(
     onBack: () -> Unit,
@@ -87,6 +98,27 @@ fun CameraPreviewScreen(
     var detections by remember { mutableStateOf<DetectionOverlay?>(null) }
     var segOverlay by remember { mutableStateOf<SegmentationOverlay?>(null) }
     var hitText by remember { mutableStateOf("") }
+    var fpsText by remember { mutableStateOf("—") }
+    var lastDetTimestampNs by remember { mutableStateOf(0L) }
+    var rollingFps by remember { mutableFloatStateOf(0f) }
+
+    var confThreshold by remember {
+        mutableFloatStateOf(DetectTrialSettings.loadConf(context))
+    }
+    var classFilter by remember {
+        mutableStateOf(DetectTrialSettings.loadClassFilter(context))
+    }
+    var checklistSelected by remember {
+        mutableStateOf(
+            when (val f = DetectTrialSettings.loadClassFilter(context)) {
+                DetectTrialSettings.ClassFilter.All -> DetectTrialSettings.CHECKLIST.toSet()
+                DetectTrialSettings.ClassFilter.Outdoor -> DetectTrialSettings.OUTDOOR_PRESET
+                is DetectTrialSettings.ClassFilter.Custom -> f.names
+            }
+        )
+    }
+    var showControls by remember { mutableStateOf(false) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val realCamera = remember { RealCameraManager(context) }
     val simCamera = remember { SimCameraManager() }
@@ -94,6 +126,12 @@ fun CameraPreviewScreen(
         DefaultVisionManager(VisionEngineFactory.forRealPath(context))
     }
     val simVision = remember { SimVisionManager() }
+
+    fun applyDetectControls() {
+        val engine = realVision.engine() as? TfliteYoloDetectVisionEngine ?: return
+        engine.setConfThreshold(confThreshold)
+        engine.setAllowedClassIndices(classFilter.allowedIndices())
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -104,6 +142,7 @@ fun CameraPreviewScreen(
     DisposableEffect(Unit) {
         realCamera.attachVisionManager(realVision)
         realVision.start()
+        applyDetectControls()
         onDispose {
             realCamera.attachVisionManager(null)
             realCamera.unbindPreview()
@@ -112,6 +151,12 @@ fun CameraPreviewScreen(
             realVision.stop()
             simCamera.stop()
             simVision.stop()
+        }
+    }
+
+    LaunchedEffect(confThreshold, classFilter, source) {
+        if (source == CameraSource.REAL) {
+            applyDetectControls()
         }
     }
 
@@ -127,6 +172,9 @@ fun CameraPreviewScreen(
                 detections = null
                 segOverlay = null
                 hitText = ""
+                fpsText = "—"
+                lastDetTimestampNs = 0L
+                rollingFps = 0f
             }
             CameraSource.REAL -> {
                 simCamera.stop()
@@ -142,6 +190,7 @@ fun CameraPreviewScreen(
                     VisionEngineFactory.closeQuietly(previous)
                     realVision.setEngine(VisionEngineFactory.forRealPath(context))
                 }
+                applyDetectControls()
                 realCamera.attachVisionManager(realVision)
                 visionStatusTr = realVision.uiStatusTr()
                 analysisNote = if (realVision.wantsFrameAnalysis()) {
@@ -176,7 +225,29 @@ fun CameraPreviewScreen(
         while (true) {
             val latestDet = realVision.latestDetections()
             if (latestDet != null && latestDet !== detections) {
+                if (lastDetTimestampNs > 0L &&
+                    latestDet.timestampNs > lastDetTimestampNs
+                ) {
+                    val dtSec =
+                        (latestDet.timestampNs - lastDetTimestampNs) / 1_000_000_000.0
+                    if (dtSec > 0.001) {
+                        val instant = (1.0 / dtSec).toFloat()
+                        rollingFps = if (rollingFps <= 0f) {
+                            instant
+                        } else {
+                            rollingFps * 0.65f + instant * 0.35f
+                        }
+                    }
+                }
+                lastDetTimestampNs = latestDet.timestampNs
                 detections = latestDet
+                fpsText = if (rollingFps > 0f) {
+                    "%.1f".format(rollingFps)
+                } else if (latestDet.inferenceMs > 0L) {
+                    "%.1f".format(1000f / latestDet.inferenceMs.coerceAtLeast(1L))
+                } else {
+                    "—"
+                }
                 hitText = latestDet.boxes
                     .take(6)
                     .joinToString(" · ") {
@@ -234,6 +305,12 @@ fun CameraPreviewScreen(
             } else {
                 OutlinedButton(onClick = { source = CameraSource.SIM }) { Text("SIM") }
                 Button(onClick = { source = CameraSource.REAL }) { Text("REAL") }
+            }
+            if (VisionConfig.DEFAULT_BACKEND == VisionBackend.YOLO_DETECT) {
+                Spacer(modifier = Modifier.weight(1f))
+                OutlinedButton(onClick = { showControls = true }) {
+                    Text("Kontroller")
+                }
             }
         }
 
@@ -397,6 +474,26 @@ fun CameraPreviewScreen(
                                 )
                             }
                         }
+                        if (VisionConfig.DEFAULT_BACKEND == VisionBackend.YOLO_DETECT &&
+                            realVision.wantsFrameAnalysis()
+                        ) {
+                            val ms = currentDet?.inferenceMs
+                            Text(
+                                text = if (ms != null) {
+                                    "FPS $fpsText · ${ms} ms"
+                                } else {
+                                    "FPS $fpsText"
+                                },
+                                color = Color(0xFFF5F7F4),
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(8.dp)
+                                    .background(Color(0x99000000))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -415,6 +512,143 @@ fun CameraPreviewScreen(
 
         OutlinedButton(onClick = onBack) {
             Text("Back to robot skeleton")
+        }
+    }
+
+    if (showControls && VisionConfig.DEFAULT_BACKEND == VisionBackend.YOLO_DETECT) {
+        ModalBottomSheet(
+            onDismissRequest = { showControls = false },
+            sheetState = sheetState,
+        ) {
+            DetectControlsSheet(
+                confThreshold = confThreshold,
+                onConfChange = { value ->
+                    confThreshold = DetectTrialSettings.clampConf(value)
+                    DetectTrialSettings.saveConf(context, confThreshold)
+                    applyDetectControls()
+                },
+                classFilter = classFilter,
+                checklistSelected = checklistSelected,
+                onSelectAll = {
+                    classFilter = DetectTrialSettings.ClassFilter.All
+                    checklistSelected = DetectTrialSettings.CHECKLIST.toSet()
+                    DetectTrialSettings.saveClassFilter(context, classFilter)
+                    applyDetectControls()
+                },
+                onSelectOutdoor = {
+                    classFilter = DetectTrialSettings.ClassFilter.Outdoor
+                    checklistSelected = DetectTrialSettings.OUTDOOR_PRESET
+                    DetectTrialSettings.saveClassFilter(context, classFilter)
+                    applyDetectControls()
+                },
+                onToggleClass = { name, checked ->
+                    val next = if (checked) {
+                        checklistSelected + name
+                    } else {
+                        checklistSelected - name
+                    }
+                    checklistSelected = next
+                    classFilter = if (next == DetectTrialSettings.OUTDOOR_PRESET) {
+                        DetectTrialSettings.ClassFilter.Outdoor
+                    } else {
+                        DetectTrialSettings.ClassFilter.Custom(next)
+                    }
+                    DetectTrialSettings.saveClassFilter(context, classFilter)
+                    applyDetectControls()
+                },
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DetectControlsSheet(
+    confThreshold: Float,
+    onConfChange: (Float) -> Unit,
+    classFilter: DetectTrialSettings.ClassFilter,
+    checklistSelected: Set<String>,
+    onSelectAll: () -> Unit,
+    onSelectOutdoor: () -> Unit,
+    onToggleClass: (String, Boolean) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 8.dp)
+            .padding(bottom = 28.dp)
+    ) {
+        Text(
+            text = "Tespit kontrolleri",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFF1B2A20)
+        )
+        Text(
+            text = "Eşik: ${"%.2f".format(confThreshold)}",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color(0xFF3A5560),
+            modifier = Modifier.padding(top = 12.dp)
+        )
+        Slider(
+            value = confThreshold,
+            onValueChange = onConfChange,
+            valueRange = DetectTrialSettings.MIN_CONF..DetectTrialSettings.MAX_CONF,
+            steps = 10,
+        )
+        Text(
+            text = "Bulunacak şeyler",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = Color(0xFF1B2A20),
+            modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (classFilter is DetectTrialSettings.ClassFilter.All) {
+                Button(onClick = onSelectAll) { Text("Hepsi") }
+            } else {
+                OutlinedButton(onClick = onSelectAll) { Text("Hepsi") }
+            }
+            if (classFilter is DetectTrialSettings.ClassFilter.Outdoor) {
+                Button(onClick = onSelectOutdoor) { Text("Dışarı seti") }
+            } else {
+                OutlinedButton(onClick = onSelectOutdoor) { Text("Dışarı seti") }
+            }
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(0.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp),
+        ) {
+            for (name in DetectTrialSettings.CHECKLIST) {
+                val checked = classFilter is DetectTrialSettings.ClassFilter.All ||
+                    name in checklistSelected
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(end = 4.dp)
+                ) {
+                    Checkbox(
+                        checked = checked,
+                        onCheckedChange = { onToggleClass(name, it) },
+                        enabled = classFilter !is DetectTrialSettings.ClassFilter.All,
+                    )
+                    Text(
+                        text = DetectTrialSettings.turkishChecklistLabel(name),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Color(0xFF1B2A20),
+                    )
+                }
+            }
+        }
+        if (classFilter is DetectTrialSettings.ClassFilter.All) {
+            Text(
+                text = "Hepsi: 80 COCO sınıfı gösterilir. Listeyi daraltmak için " +
+                    "«Dışarı seti» veya tek tek seç.",
+                style = MaterialTheme.typography.labelLarge,
+                color = Color(0xFF6B5344),
+                modifier = Modifier.padding(top = 4.dp)
+            )
         }
     }
 }

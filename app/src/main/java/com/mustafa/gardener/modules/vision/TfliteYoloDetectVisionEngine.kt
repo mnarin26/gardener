@@ -37,6 +37,9 @@ class TfliteYoloDetectVisionEngine private constructor(
     private val closed = AtomicBoolean(false)
     private val busy = AtomicBoolean(false)
     private val latest = AtomicReference<DetectionOverlay?>(null)
+    private val confThreshold = AtomicReference(DetectTrialSettings.DEFAULT_CONF)
+    /** null = all COCO classes; otherwise keep only these class indices after NMS. */
+    private val allowedClassIndices = AtomicReference<Set<Int>?>(null)
 
     private val inputFloat = FloatArray(1 * inputSize * inputSize * 3)
     private val inputBuffer: ByteBuffer =
@@ -64,6 +67,16 @@ class TfliteYoloDetectVisionEngine private constructor(
     override fun latestOverlay(): SegmentationOverlay? = null
 
     override fun latestDetections(): DetectionOverlay? = latest.get()
+
+    fun confThreshold(): Float = confThreshold.get()
+
+    fun setConfThreshold(value: Float) {
+        confThreshold.set(DetectTrialSettings.clampConf(value))
+    }
+
+    fun setAllowedClassIndices(indices: Set<Int>?) {
+        allowedClassIndices.set(indices)
+    }
 
     override fun onFrame(frame: VisionFrame) {
         if (closed.get()) return
@@ -109,11 +122,29 @@ class TfliteYoloDetectVisionEngine private constructor(
         outputBuffer.rewind()
         outputBuffer.asFloatBuffer().get(outputFloat)
 
-        val boxes = decodeAndNms(outputFloat, meta, inputSize, numAnchors, numClasses)
-        Log.i(TAG, "detections=${boxes.size} after NMS")
+        val boxes = decodeAndNms(
+            raw = outputFloat,
+            meta = meta,
+            inputSize = inputSize,
+            numAnchors = numAnchors,
+            numClasses = numClasses,
+            confThreshold = confThreshold.get(),
+        )
+        val allowed = allowedClassIndices.get()
+        val filtered = if (allowed == null) {
+            boxes
+        } else {
+            boxes.filter { it.classIndex in allowed }
+        }
+        Log.i(
+            TAG,
+            "detections=${filtered.size} after NMS" +
+                (if (allowed != null) " (class filter)" else "") +
+                " conf=${"%.2f".format(confThreshold.get())}",
+        )
         latest.set(
             DetectionOverlay(
-                boxes = boxes,
+                boxes = filtered,
                 imageWidth = oriented.width,
                 imageHeight = oriented.height,
                 timestampNs = timestampNs,
@@ -140,7 +171,7 @@ class TfliteYoloDetectVisionEngine private constructor(
         private const val DEFAULT_INPUT = 640
         private const val DEFAULT_ANCHORS = 8400
         private const val DEFAULT_CLASSES = 80
-        private const val CONF_THRESHOLD = 0.25f
+        private const val DEFAULT_CONF_THRESHOLD = DetectTrialSettings.DEFAULT_CONF
         private const val IOU_THRESHOLD = 0.45f
         private const val MAX_DETECTIONS = 25
         /** If all box coords among candidates are ≤ this, treat as normalized 0–1. */
@@ -160,9 +191,11 @@ class TfliteYoloDetectVisionEngine private constructor(
             inputSize: Int,
             numAnchors: Int = DEFAULT_ANCHORS,
             numClasses: Int = DEFAULT_CLASSES,
+            confThreshold: Float = DEFAULT_CONF_THRESHOLD,
         ): List<DetectionBox> {
             // Layout [1, 84, N] flattened as channel-major: raw[c * N + a]
             val n = numAnchors
+            val minConf = DetectTrialSettings.clampConf(confThreshold)
             val scored = ArrayList<ScoredAnchor>(64)
             var maxBoxCoord = 0f
 
@@ -176,7 +209,7 @@ class TfliteYoloDetectVisionEngine private constructor(
                         bestCls = c
                     }
                 }
-                if (bestScore < CONF_THRESHOLD) continue
+                if (bestScore < minConf) continue
 
                 val cx = raw[0 * n + a]
                 val cy = raw[1 * n + a]
