@@ -1,11 +1,15 @@
 package com.mustafa.gardener
 
 import com.mustafa.gardener.modules.vision.CityscapesLabels
+import com.mustafa.gardener.modules.vision.CocoLabels
 import com.mustafa.gardener.modules.vision.DefaultVisionManager
 import com.mustafa.gardener.modules.vision.FailedVisionEngine
+import com.mustafa.gardener.modules.vision.FrameOrientation
 import com.mustafa.gardener.modules.vision.SimVisionEngine
 import com.mustafa.gardener.modules.vision.SimVisionManager
 import com.mustafa.gardener.modules.vision.UnloadedVisionEngine
+import com.mustafa.gardener.modules.vision.VisionBackend
+import com.mustafa.gardener.modules.vision.VisionConfig
 import com.mustafa.gardener.modules.vision.VisionEngineState
 import com.mustafa.gardener.modules.vision.VisionFrame
 import com.mustafa.gardener.modules.vision.VisionLabels
@@ -91,5 +95,26 @@ class VisionEngineTest {
         assertEquals(VisionEngineState.SIM, runtime.visionManager.engineState())
         assertEquals("SIM — model yok (simülasyon)", runtime.visionManager.uiStatusTr())
         runtime.stopSimulation()
+    }
+
+    @Test
+    fun defaultBackend_isYoloDetect() {
+        assertEquals(VisionBackend.YOLO_DETECT, VisionConfig.DEFAULT_BACKEND)
+        assertEquals(80, CocoLabels.ALL.size)
+        assertTrue(CocoLabels.ALL.containsAll(listOf("person", "car", "dog")))
+    }
+
+    @Test
+    fun frameOrientation_rotate90_swapsDimensions() {
+        val src = intArrayOf(
+            1, 2, 3,
+            4, 5, 6,
+        )
+        val out = FrameOrientation.rotateArgb(src, width = 3, height = 2, rotationDegrees = 90)
+        assertEquals(2, out.width)
+        assertEquals(3, out.height)
+        // (0,0)=1 -> (1,0); (2,0)=3 -> (1,2); (0,1)=4 -> (0,0)
+        assertEquals(4, out.pixels[0])
+        assertEquals(1, out.pixels[1])
     }
 }

@@ -1,23 +1,23 @@
-Gardener — on-device segmentation models
-========================================
+Gardener — on-device vision models
+==================================
 
-Bundled ready-seg trial (Cityscapes):
+Default smoke trial (object detection):
+
+  yolov8n_float32.tflite          (~12.2 MB, Ultralytics YOLOv8n COCO float32)
+  yolov8n_coco_labels.txt         (80 COCO class names)
+
+Asset path used by VisionModelPaths.ASSET_YOLO_RELATIVE:
+
+  assets/models/yolov8n_float32.tflite
+
+Optional filesDir override:
+
+  <app filesDir>/models/yolov8n_detect.tflite
+
+Bundled but NOT default (FFNet Cityscapes seg — VisionBackend.FFNET_SEG):
 
   ffnet_122ns_lowres_w8a8.tflite   (~32 MB, Qualcomm AI Hub public asset)
   ffnet_122ns_lowres_labels.txt
   ffnet_122ns_lowres_metadata.json
 
-Asset path used by VisionModelPaths.ASSET_MODEL_RELATIVE:
-
-  assets/models/ffnet_122ns_lowres_w8a8.tflite
-
-Optional fine-tune drop-in (filesDir):
-
-  <app filesDir>/models/outdoor_nav_seg.tflite
-
-Legacy name still recognized if present:
-
-  assets/models/outdoor_nav_seg.tflite
-
-Highlight classes for overlay: road, sidewalk, wall, fence
-(Cityscapes train ids; see ready-seg-trial.md).
+See docs/yolov8n-trial.md (AGPL note for Ultralytics weights).

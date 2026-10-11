@@ -31,9 +31,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
@@ -44,14 +48,19 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.mustafa.gardener.modules.camera.RealCameraManager
 import com.mustafa.gardener.modules.camera.SimCameraManager
+import com.mustafa.gardener.modules.vision.CocoLabels
 import com.mustafa.gardener.modules.vision.DefaultVisionManager
+import com.mustafa.gardener.modules.vision.DetectionOverlay
 import com.mustafa.gardener.modules.vision.SegmentationOverlay
 import com.mustafa.gardener.modules.vision.SimVisionManager
 import com.mustafa.gardener.modules.vision.TfliteSegVisionEngine
+import com.mustafa.gardener.modules.vision.TfliteYoloDetectVisionEngine
+import com.mustafa.gardener.modules.vision.VisionConfig
 import com.mustafa.gardener.modules.vision.VisionEngineFactory
 import com.mustafa.gardener.modules.vision.VisionEngineState
-import com.mustafa.gardener.modules.vision.VisionLabels
+import com.mustafa.gardener.modules.vision.VisionBackend
 import kotlinx.coroutines.delay
+import kotlin.math.max
 
 private enum class CameraSource {
     SIM,
@@ -75,8 +84,9 @@ fun CameraPreviewScreen(
     var resolutionText by remember { mutableStateOf("target 640×480") }
     var visionStatusTr by remember { mutableStateOf("Model yok — sadece önizleme") }
     var analysisNote by remember { mutableStateOf("ImageAnalysis kapalı") }
-    var overlay by remember { mutableStateOf<SegmentationOverlay?>(null) }
-    var classHitText by remember { mutableStateOf("") }
+    var detections by remember { mutableStateOf<DetectionOverlay?>(null) }
+    var segOverlay by remember { mutableStateOf<SegmentationOverlay?>(null) }
+    var hitText by remember { mutableStateOf("") }
 
     val realCamera = remember { RealCameraManager(context) }
     val simCamera = remember { SimCameraManager() }
@@ -98,7 +108,7 @@ fun CameraPreviewScreen(
             realCamera.attachVisionManager(null)
             realCamera.unbindPreview()
             realCamera.stop()
-            (realVision.engine() as? TfliteSegVisionEngine)?.close()
+            VisionEngineFactory.closeQuietly(realVision.engine())
             realVision.stop()
             simCamera.stop()
             simVision.stop()
@@ -114,25 +124,33 @@ fun CameraPreviewScreen(
                 resolutionText = simCamera.previewResolutionText()
                 visionStatusTr = simVision.uiStatusTr()
                 analysisNote = "SIM — analiz yok"
-                overlay = null
-                classHitText = ""
+                detections = null
+                segOverlay = null
+                hitText = ""
             }
             CameraSource.REAL -> {
                 simCamera.stop()
                 simVision.stop()
                 realVision.start()
-                // Reload engine once when entering REAL (asset may exist).
                 val previous = realVision.engine()
-                if (previous !is TfliteSegVisionEngine ||
-                    previous.state() != VisionEngineState.READY
-                ) {
-                    (previous as? TfliteSegVisionEngine)?.close()
+                val readyYolo = previous is TfliteYoloDetectVisionEngine &&
+                    previous.state() == VisionEngineState.READY
+                val readySeg = previous is TfliteSegVisionEngine &&
+                    previous.state() == VisionEngineState.READY
+                val wantYolo = VisionConfig.DEFAULT_BACKEND == VisionBackend.YOLO_DETECT
+                if (!(wantYolo && readyYolo) && !(!wantYolo && readySeg)) {
+                    VisionEngineFactory.closeQuietly(previous)
                     realVision.setEngine(VisionEngineFactory.forRealPath(context))
                 }
                 realCamera.attachVisionManager(realVision)
                 visionStatusTr = realVision.uiStatusTr()
                 analysisNote = if (realVision.wantsFrameAnalysis()) {
-                    "ImageAnalysis açık (≤5 fps) — gerçek segmentasyon"
+                    when (VisionConfig.DEFAULT_BACKEND) {
+                        VisionBackend.YOLO_DETECT ->
+                            "ImageAnalysis açık (≤5 fps) — YOLOv8n tespit"
+                        VisionBackend.FFNET_SEG ->
+                            "ImageAnalysis açık (≤5 fps) — FFNet segmentasyon"
+                    }
                 } else {
                     "ImageAnalysis kapalı (model yok / yüklenemedi)"
                 }
@@ -153,14 +171,23 @@ fun CameraPreviewScreen(
         }
     }
 
-    // Poll overlay while REAL + READY (engine updates from analysis thread).
     LaunchedEffect(source, permissionGranted) {
         if (source != CameraSource.REAL || !permissionGranted) return@LaunchedEffect
         while (true) {
-            val latest = realVision.latestOverlay()
-            if (latest != null && latest !== overlay) {
-                overlay = latest
-                classHitText = latest.classPixelCounts.entries
+            val latestDet = realVision.latestDetections()
+            if (latestDet != null && latestDet !== detections) {
+                detections = latestDet
+                hitText = latestDet.boxes
+                    .take(6)
+                    .joinToString(" · ") {
+                        "${it.label}:${"%.0f".format(it.score * 100)}%"
+                    }.ifEmpty { "tespit yok" } +
+                    "  (${latestDet.inferenceMs} ms)"
+            }
+            val latestSeg = realVision.latestOverlay()
+            if (latestSeg != null && latestSeg !== segOverlay) {
+                segOverlay = latestSeg
+                hitText = latestSeg.classPixelCounts.entries
                     .sortedByDescending { it.value }
                     .joinToString(" · ") { "${it.key}:${it.value}" }
             }
@@ -232,7 +259,12 @@ fun CameraPreviewScreen(
             modifier = Modifier.padding(top = 4.dp)
         )
         Text(
-            text = "Hedef sınıflar: ${VisionLabels.phase1Summary()} (Cityscapes FFNet)",
+            text = when (VisionConfig.DEFAULT_BACKEND) {
+                VisionBackend.YOLO_DETECT ->
+                    "Deneme: YOLOv8n COCO (person/car/… kutular)"
+                VisionBackend.FFNET_SEG ->
+                    "Deneme: FFNet Cityscapes (yol/kaldırım/duvar/çit)"
+            },
             style = MaterialTheme.typography.labelLarge,
             color = Color(0xFF3A5560),
             modifier = Modifier.padding(top = 2.dp)
@@ -243,9 +275,9 @@ fun CameraPreviewScreen(
             color = Color(0xFF6B5344),
             modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
         )
-        if (classHitText.isNotEmpty()) {
+        if (hitText.isNotEmpty()) {
             Text(
-                text = "Maske pikselleri: $classHitText",
+                text = hitText,
                 style = MaterialTheme.typography.labelLarge,
                 color = Color(0xFF1B2A20),
                 modifier = Modifier.padding(bottom = 8.dp)
@@ -300,20 +332,61 @@ fun CameraPreviewScreen(
                                 realCamera.bindPreview(lifecycleOwner, previewView)
                             }
                         )
-                        val currentOverlay = overlay
-                        val overlayImage = remember(currentOverlay?.timestampNs) {
-                            currentOverlay?.bitmap
+                        val currentDet = detections
+                        if (currentDet != null && currentDet.boxes.isNotEmpty()) {
+                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                val imgW = currentDet.imageWidth.toFloat().coerceAtLeast(1f)
+                                val imgH = currentDet.imageHeight.toFloat().coerceAtLeast(1f)
+                                // PreviewView FILL_CENTER: scale to fill, center crop.
+                                val scale = max(size.width / imgW, size.height / imgH)
+                                val drawnW = imgW * scale
+                                val drawnH = imgH * scale
+                                val originX = (size.width - drawnW) / 2f
+                                val originY = (size.height - drawnH) / 2f
+                                val paint = android.graphics.Paint().apply {
+                                    isAntiAlias = true
+                                    textSize = 28f
+                                    color = android.graphics.Color.WHITE
+                                }
+                                for (box in currentDet.boxes) {
+                                    val left = originX + box.left * drawnW
+                                    val top = originY + box.top * drawnH
+                                    val right = originX + box.right * drawnW
+                                    val bottom = originY + box.bottom * drawnH
+                                    val stroke = Color(CocoLabels.colorArgb(box.classIndex))
+                                    drawRect(
+                                        color = stroke,
+                                        topLeft = Offset(left, top),
+                                        size = Size(
+                                            (right - left).coerceAtLeast(1f),
+                                            (bottom - top).coerceAtLeast(1f),
+                                        ),
+                                        style = Stroke(width = 3.5f),
+                                    )
+                                    val label = "${box.label} ${"%.0f".format(box.score * 100)}"
+                                    drawContext.canvas.nativeCanvas.drawText(
+                                        label,
+                                        left + 4f,
+                                        (top - 8f).coerceAtLeast(28f),
+                                        paint,
+                                    )
+                                }
+                            }
+                        }
+                        val currentSeg = segOverlay
+                        val overlayImage = remember(currentSeg?.timestampNs) {
+                            currentSeg?.bitmap
                                 ?.takeIf { !it.isRecycled }
                                 ?.asImageBitmap()
                         }
-                        if (currentOverlay != null && overlayImage != null) {
+                        if (currentSeg != null && overlayImage != null && currentDet == null) {
                             Canvas(modifier = Modifier.fillMaxSize()) {
                                 drawImage(
                                     image = overlayImage,
                                     srcOffset = IntOffset.Zero,
                                     srcSize = IntSize(
-                                        currentOverlay.maskWidth,
-                                        currentOverlay.maskHeight,
+                                        currentSeg.maskWidth,
+                                        currentSeg.maskHeight,
                                     ),
                                     dstOffset = IntOffset.Zero,
                                     dstSize = IntSize(
@@ -332,8 +405,8 @@ fun CameraPreviewScreen(
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "UNVERIFIED on device: seg quality + NPU. Build wires CameraX + TFLite; " +
-                "confirm overlay on S24 Ultra.",
+            text = "UNVERIFIED on device: box alignment + NPU. Build wires CameraX + " +
+                "YOLOv8n TFLite; confirm boxes on S24 Ultra.",
             style = MaterialTheme.typography.labelLarge,
             color = Color(0xFF8A4B2F)
         )

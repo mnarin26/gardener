@@ -5,10 +5,10 @@ Otonom çim biçme robotu — **robot uygulaması iskeleti** (Kotlin + Jetpack C
 - **Paket / applicationId:** `com.mustafa.gardener` *(stated assumption)*
 - **Min SDK:** 26
 - **Target / compile SDK:** 37
-- **Mod:** Runtime modules SIMULATION; camera preview screen can open REAL CameraX (~640×480 target). Vision: pluggable `VisionEngine` — SIM / unloaded / failed, plus bundled **FFNet Cityscapes TFLite** trial (road/sidewalk/wall/fence overlay). LiDAR / ESP32 yok.
-- **Cihaz kamera / seg / NPU:** henüz doğrulanmadı — S24 Ultra testi gerekir.
+- **Mod:** Runtime modules SIMULATION; camera preview screen can open REAL CameraX (~640×480 target). Vision: pluggable `VisionEngine` — SIM / unloaded / failed, plus bundled **YOLOv8n COCO TFLite** detection trial (boxes + labels; default). FFNet Cityscapes seg remains optional behind a flag. LiDAR / ESP32 yok.
+- **Cihaz kamera / detect / NPU:** henüz doğrulanmadı — S24 Ultra testi gerekir. Ultralytics ağırlıkları **AGPL-3.0**.
 
-Merhaba demo kaldırıldı; biçme otonomisi iddiası yoktur. Hazır seg denemesi debug APK’dadır; PC fine-tune ayrı.
+Merhaba demo kaldırıldı; biçme otonomisi iddiası yoktur. YOLOv8n smoke denemesi debug APK’dadır; PC fine-tune ayrı.
 
 ## Derleme
 

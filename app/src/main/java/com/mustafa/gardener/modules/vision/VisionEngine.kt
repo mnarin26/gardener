@@ -34,4 +34,7 @@ interface VisionEngine {
 
     /** Latest segmentation overlay bitmap, if this engine produces one. */
     fun latestOverlay(): SegmentationOverlay? = null
+
+    /** Latest detection boxes, if this engine produces them. */
+    fun latestDetections(): DetectionOverlay? = null
 }

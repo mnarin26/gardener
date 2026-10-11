@@ -18,7 +18,12 @@ class FailedVisionEngine(
 
     override fun wantsFrameAnalysis(): Boolean = false
 
-    override fun classLabels(): List<String> = VisionLabels.PHASE1
+    override fun classLabels(): List<String> =
+        if (VisionConfig.DEFAULT_BACKEND == VisionBackend.YOLO_DETECT) {
+            CocoLabels.ALL
+        } else {
+            VisionLabels.PHASE1
+        }
 
     override fun onFrame(frame: VisionFrame) {
         // no-op

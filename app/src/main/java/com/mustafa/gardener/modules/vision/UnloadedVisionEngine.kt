@@ -6,7 +6,7 @@ import android.content.Context
  * Real-path placeholder engine used when no on-device model file is present.
  *
  * Reports clearly that inference is not running. Does not paint fake detections.
- * When a model file exists, [VisionEngineFactory] prefers [TfliteSegVisionEngine] instead.
+ * When a model file exists, [VisionEngineFactory] loads YOLO detect (default) or FFNet seg.
  */
 class UnloadedVisionEngine(
     private val engineState: VisionEngineState = VisionEngineState.UNLOADED,

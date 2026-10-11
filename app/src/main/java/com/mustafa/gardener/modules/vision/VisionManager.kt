@@ -31,4 +31,7 @@ interface VisionManager : SensorDriver {
 
     /** Latest segmentation overlay from the active engine, if any. */
     fun latestOverlay(): SegmentationOverlay? = engine().latestOverlay()
+
+    /** Latest detection boxes from the active engine, if any. */
+    fun latestDetections(): DetectionOverlay? = engine().latestDetections()
 }
