@@ -13,3 +13,11 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# training/ local artifacts (venv, datasets, runs) — see training/.gitignore
+training/.venv/
+training/venv/
+training/datasets/
+training/runs/
+training/**/*.pt
+training/.env

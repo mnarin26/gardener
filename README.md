@@ -19,6 +19,10 @@ export ANDROID_HOME=/path/to/Android/Sdk
 
 Debug APK: `app/build/outputs/apk/debug/app-debug.apk`
 
+## Eğitim (PC — Android derlemesini etkilemez)
+
+İnce ayar iskeleti: [`training/`](training/) (Ultralytics YOLO segmentasyon + Roboflow veri). Gradle yalnızca `:app` içerir; `training/` telefona dahil değildir.
+
 ## Modüller
 
 CameraManager, VisionManager, ObjectManager, LiDARManager, ServoController, GNSSManager, IMUManager, EncoderManager, LandmarkManager, SensorFusion, Localization, MapManager, PathPlanner, ObstacleAvoidance, MissionManager, Esp32Communication, CalibrationManager, SimulationManager — hepsi ortak arayüz + `Sim*` implementasyon.

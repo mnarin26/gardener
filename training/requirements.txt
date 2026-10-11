@@ -1,0 +1,6 @@
+# Install CUDA PyTorch for RTX 3060 FIRST (see README), then:
+ultralytics>=8.3.0,<9
+roboflow>=1.1.0
+PyYAML>=6.0
+opencv-python-headless>=4.8.0
+numpy>=1.23.0

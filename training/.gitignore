@@ -1,0 +1,22 @@
+# Local venv and Python caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Downloaded datasets and training outputs (keep machine local)
+datasets/
+runs/
+weights/
+*.pt
+*.onnx
+*.engine
+*.tflite
+roboflow.zip
+
+# Secrets
+.env
+.env.*
+**/api_key*
