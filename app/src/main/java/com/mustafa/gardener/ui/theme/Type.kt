@@ -1,4 +1,4 @@
-package com.mustafa.merhaba.ui.theme
+package com.mustafa.gardener.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
@@ -10,27 +10,32 @@ val Typography = Typography(
     displayLarge = TextStyle(
         fontFamily = FontFamily.Serif,
         fontWeight = FontWeight.Bold,
-        fontSize = 56.sp,
-        lineHeight = 64.sp,
-        letterSpacing = (-1).sp
+        fontSize = 40.sp,
+        lineHeight = 46.sp,
+        letterSpacing = (-0.5).sp
+    ),
+    titleMedium = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 18.sp,
+        lineHeight = 24.sp
     ),
     bodyLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Normal,
         fontSize = 16.sp,
-        lineHeight = 24.sp,
-        letterSpacing = 0.3.sp
+        lineHeight = 22.sp
     ),
-    titleMedium = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Medium,
-        fontSize = 22.sp,
-        lineHeight = 28.sp
+    bodyMedium = TextStyle(
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.Normal,
+        fontSize = 13.sp,
+        lineHeight = 18.sp
     ),
     labelLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Medium,
-        fontSize = 16.sp,
-        lineHeight = 20.sp
+        fontSize = 14.sp,
+        lineHeight = 18.sp
     )
 )
